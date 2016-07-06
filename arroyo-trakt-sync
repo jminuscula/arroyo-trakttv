@@ -1,0 +1,153 @@
+#!/usr/bin/env python3
+
+import sys
+import os.path
+import argparse
+
+import json
+import yaml
+from trakt import Trakt
+
+
+TRAKTTV_APP_ID = '9745'
+TRAKTTV_CLIENT_ID = 'f7b8d27c362fa0ea95b6b0bf5c52ecb84db72a679d8b18571474d9e38ef24ffe'
+TRAKTTV_CLIENT_SECRET = '33955050a0facdad68d1695083e2fc9c8e17f9f7204810c70fadf4c92f4f95b5'
+
+
+class Trakttv:
+
+    def __init__(self, auth_path):
+        self.auth_path = auth_path
+        self.auth = self.login()
+
+    def login(self):
+        Trakt.construct()
+        Trakt.client.configuration.defaults.client(id=TRAKTTV_CLIENT_ID, secret=TRAKTTV_CLIENT_SECRET)
+        Trakt.client.configuration.defaults.app(id=TRAKTTV_APP_ID)
+        Trakt.on('oauth.token_refreshed', self.refresh_token)
+        return self.get_auth()
+
+    def invalid_auth_exit(self):
+        print('ERROR: Could not login to Trakt.tv')
+        sys.exit(1)
+
+    def get_auth(self):
+        auth = None
+        if os.path.exists(self.auth_path):
+            with open(self.auth_path) as authf:
+                try:
+                    return json.load(authf)
+                except (KeyError, json.decoder.JSONDecodeError):
+                    pass
+
+        if not token:
+            auth = self.generate_auth_info()
+            if auth is None:
+                return self.invalid_auth_exit()
+            self.save_auth_info(auth)
+
+        return auth
+
+    def generate_auth_info(self):
+        auth_url = Trakt['oauth/pin'].url()
+        print('Please allow Arroyo Trakt Sync access to your Trakt.tv profile',
+              '\nby visiting the following url and entering the PIN provided:',
+              '\n    {}\n'.format(auth_url))
+
+        pin = input('PIN: ')
+        return Trakt['oauth'].token_exchange(pin, 'urn:ietf:wg:oauth:2.0:oob')
+
+    def save_auth_info(self, info):
+        with open(self.auth_path, 'w') as authf:
+            return json.dump(info, authf)
+
+    def refresh_token(self, auth):
+        self.auth = auth
+        self.save_auth_info(auth)
+
+    def get_shows(self):
+        show_titles = None
+        with Trakt.client.configuration.oauth.from_response(self.auth):
+            shows = Trakt['sync/collection'].shows()
+            show_titles = [s.title for s in shows.values()]
+        return show_titles
+
+
+class ArroyoConfig:
+
+    def __init__(self, path, show_config):
+        self.path = path
+        self.show_config = show_config
+
+    def get_shows_config(self, shows):
+        conf = {}
+        for title in shows:
+            conf[title] = dict(self.show_config, kind='episode', series=title)
+        return conf
+
+    def update(self, shows, append=False):
+        conf = {'query': {}}
+        if append:
+            with open(self.path, 'r') as conf_fp:
+                stored_conf = yaml.load(conf_fp.read())
+                conf.update(stored_conf)
+
+        conf['query'].update(self.get_shows_config(shows))
+        with open(self.path, 'w') as conf_fp:
+            conf_fp.write(yaml.dump(conf, default_flow_style=False))
+
+        return True
+
+    def append_shows(self, shows):
+        conf = {}
+        with open(self.path, 'r') as conf_fp:
+            conf = yaml.load(conf_fp.read())
+
+        conf['query'] = conf['query'] or {}
+        conf['query'].update(self.get_shows_config(shows))
+
+
+class StoreDict(argparse.Action):
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        dest = getattr(namespace, self.dest, {})
+        dest.update((values.split('=', 1), ))
+        setattr(namespace, self.dest, dest)
+
+
+def arg_parse(args):
+    parser = argparse.ArgumentParser(description='Sync Arroyo config with your Trakt.tv profile')
+
+    parser.add_argument('config', help='arroyo config path')
+
+    # TODO
+    # not really needed if we are going to work with your trakt.tv collection.
+    # once lists are supported, this is needed to grab the public and private user lists
+    # parser.add_argument('username', help='trakt.tv username')
+
+    # TODO
+    # support trakt.tv lists to possible sync with iShows
+    # only collection syncing is supported for now.
+    # parser.add_argument('-l', '--list', dest='list',
+    #                     default='ishows-added',
+    #                     help='Trakt.tv list to get the list of shows from')
+
+    parser.add_argument('-t', '--trakt-auth', dest='auth',
+                        default='.trakttv',
+                        help='trakt.tv auth path (will be created if does not exist)')
+
+    parser.add_argument('-c', '--show-config', dest='show_config',
+                        default={}, type=str, action=StoreDict)
+
+    parser.add_argument('-a', '--append', dest='append',
+                        action='store_true',
+                        help='append only, do not remove any configuration')
+
+    return parser.parse_args(args)
+
+
+if __name__ == '__main__':
+    args = arg_parse(sys.argv[1:])
+    trakt_client = Trakttv(args.auth)
+    arroyo_config = ArroyoConfig(args.config, args.show_config)
+    arroyo_config.update(trakt_client.get_shows(), args.append)
