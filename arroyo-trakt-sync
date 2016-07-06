@@ -98,14 +98,6 @@ class ArroyoConfig:
 
         return True
 
-    def append_shows(self, shows):
-        conf = {}
-        with open(self.path, 'r') as conf_fp:
-            conf = yaml.load(conf_fp.read())
-
-        conf['query'] = conf['query'] or {}
-        conf['query'].update(self.get_shows_config(shows))
-
 
 class StoreDict(argparse.Action):
 
