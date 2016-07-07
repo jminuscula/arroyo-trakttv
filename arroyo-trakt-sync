@@ -9,6 +9,8 @@ import yaml
 from trakt import Trakt
 
 
+# NOTE Trakt.tv API does not implement OAuth2 implicit flow,
+# so the client_secret is obviously not secret :)
 TRAKTTV_APP_ID = '9745'
 TRAKTTV_CLIENT_ID = 'f7b8d27c362fa0ea95b6b0bf5c52ecb84db72a679d8b18571474d9e38ef24ffe'
 TRAKTTV_CLIENT_SECRET = '33955050a0facdad68d1695083e2fc9c8e17f9f7204810c70fadf4c92f4f95b5'
