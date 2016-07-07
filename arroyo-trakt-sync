@@ -14,33 +14,34 @@ TRAKTTV_CLIENT_ID = 'f7b8d27c362fa0ea95b6b0bf5c52ecb84db72a679d8b18571474d9e38ef
 TRAKTTV_CLIENT_SECRET = '33955050a0facdad68d1695083e2fc9c8e17f9f7204810c70fadf4c92f4f95b5'
 
 
-class Trakttv:
+class TrakttvClient:
+    """
+    Connects with Trakt.tv to provide shows in your collection
+    """
 
-    def __init__(self, auth_path):
+    def __init__(self, auth_path, auto_login=True):
         self.auth_path = auth_path
-        self.auth = self.login()
+        self.auth = self.login() if auto_login else None
+
+    def invalid_auth_exit(self):
+        print('ERROR: Could not login to Trakt.tv')
+        sys.exit(1)
 
     def login(self):
         Trakt.construct()
         Trakt.client.configuration.defaults.client(id=TRAKTTV_CLIENT_ID, secret=TRAKTTV_CLIENT_SECRET)
         Trakt.client.configuration.defaults.app(id=TRAKTTV_APP_ID)
         Trakt.on('oauth.token_refreshed', self.refresh_token)
-        return self.get_auth()
 
-    def invalid_auth_exit(self):
-        print('ERROR: Could not login to Trakt.tv')
-        sys.exit(1)
-
-    def get_auth(self):
         auth = None
         if os.path.exists(self.auth_path):
             with open(self.auth_path) as authf:
                 try:
-                    return json.load(authf)
-                except (KeyError, json.decoder.JSONDecodeError):
+                    auth = json.load(authf)
+                except json.decoder.JSONDecodeError:
                     pass
 
-        if not token:
+        if not auth:
             auth = self.generate_auth_info()
             if auth is None:
                 return self.invalid_auth_exit()
@@ -74,6 +75,9 @@ class Trakttv:
 
 
 class ArroyoConfig:
+    """
+    Manages configuration changes in Arroyo
+    """
 
     def __init__(self, path, show_config):
         self.path = path
@@ -100,6 +104,11 @@ class ArroyoConfig:
 
 
 class StoreDict(argparse.Action):
+    """
+    argparse action to store a dict from command line parameters. eg:
+       ./PROG -c key1=value1 -c key2=value2
+       >>> args.config == {'key1': 'value1', 'key2': 'value2'}
+    """
 
     def __call__(self, parser, namespace, values, option_string=None):
         dest = getattr(namespace, self.dest, {})
@@ -108,7 +117,7 @@ class StoreDict(argparse.Action):
 
 
 def arg_parse(args):
-    parser = argparse.ArgumentParser(description='Sync Arroyo config with your Trakt.tv profile')
+    parser = argparse.ArgumentParser(description='Update Arroyo query config from your Trakt.tv collection')
 
     parser.add_argument('config', help='arroyo config path')
 
@@ -140,6 +149,6 @@ def arg_parse(args):
 
 if __name__ == '__main__':
     args = arg_parse(sys.argv[1:])
-    trakt_client = Trakttv(args.auth)
+    trakt_client = TrakttvClient(args.auth)
     arroyo_config = ArroyoConfig(args.config, args.show_config)
     arroyo_config.update(trakt_client.get_shows(), args.append)
